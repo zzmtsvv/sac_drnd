@@ -42,7 +42,11 @@ class SACDRNDTrainer:
         seed_everything(cfg.train_seed)
     
     def train_drnd(self) -> DRND:
-        (self.state_mean, self.state_std), (self.action_mean, self.action_std) = self.buffer.get_moments()
+        (state_mean, state_std), (action_mean, action_std) = self.buffer.get_moments()
+        self.state_mean = state_mean.to(self.device)
+        self.state_std = state_std.to(self.device)
+        self.action_mean = action_mean.to(self.device)
+        self.action_std = action_std.to(self.device)
 
         drnd = DRND(self.state_dim,
                   self.action_dim,

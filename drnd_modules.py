@@ -201,7 +201,7 @@ class DRND(nn.Module):
         target_mean_squared = target_mean.square()
 
         b1 = self.loss_fn(predictor_out, target_mean).sum(dim=-1)
-        b2 = ((predictor_out.square() - target_mean_squared) / (B2 - target_mean_squared)).sqrt().sum(dim=-1)
+        b2 = ((predictor_out.square() - target_mean_squared) / (B2 - target_mean_squared + self.eps)).abs().sqrt().sum(dim=-1)
 
         return self.alpha * b1 + (1 - self.alpha) * b2
     
