@@ -82,9 +82,9 @@ class SACDRNDTrainer:
         run_name = f"sac_drnd_" + str(self.cfg.train_seed)
         print(f"Training starts on {self.cfg.device} 🚀")
 
-        with open("jnfjd", "w") as f:
-        # with wandb.init(project=self.cfg.project, group=self.cfg.group, name=run_name, job_type="offline_training"):
-            # wandb.config.update({k: v for k, v in self.cfg.__dict__.items() if not k.startswith("__")})
+
+        with wandb.init(project=self.cfg.project, group=self.cfg.group, name=run_name, job_type="offline_training"):
+            wandb.config.update({k: v for k, v in self.cfg.__dict__.items() if not k.startswith("__")})
 
             drnd = self.train_drnd()
             drnd.eval()
