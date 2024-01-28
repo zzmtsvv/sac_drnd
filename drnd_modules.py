@@ -1,6 +1,7 @@
 from typing import Tuple, Dict
 import torch
 from torch import nn
+import random
 
 try:
     from rnd_utils import RunningMeanStd
@@ -114,17 +115,21 @@ class DRND(nn.Module):
                  action_dim: int,
                  embedding_dim: int,
                  num_target_networks: int,
+                 alpha: float,
                  state_mean: torch.Tensor,
                  state_std: torch.Tensor,
                  action_mean: torch.Tensor,
                  action_std: torch.Tensor,
                  max_action: float = 1.0,
                  hidden_dim: int = 256,
-                 num_hidden_layers: int = 4) -> None:
+                 num_hidden_layers: int = 4,
+                 eps: float = 1e-6) -> None:
         super().__init__()
 
         self.state_mean, self.state_std = state_mean, state_std
         self.action_mean, self.action_std = action_mean, action_std
+        self.eps = eps
+        self.alpha = alpha
 
         self.loss_fn = nn.MSELoss(reduction="none")
 
@@ -138,17 +143,17 @@ class DRND(nn.Module):
                                           num_hidden_layers)
         self.predictor.train()
 
-        self.prior = EnsembledTargetNetwork(state_dim,
+        self.target = EnsembledTargetNetwork(state_dim,
                                   action_dim,
                                   embedding_dim,
                                   num_target_networks,
                                   hidden_dim,
                                   num_hidden_layers)
-        self.disable_prior_grads()
-        self.prior.eval()
+        self.disable_target_grads()
+        self.target.eval()
     
-    def disable_prior_grads(self):
-        for p in self.prior.parameters():
+    def disable_target_grads(self):
+        for p in self.target.parameters():
             p.requires_grad = False
     
     def normalize(self,
@@ -163,14 +168,14 @@ class DRND(nn.Module):
     def forward(self,
                 states: torch.Tensor,
                 actions: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        self.prior.eval()
+        self.target.eval()
 
         states, actions = self.normalize(states, actions)
 
         predictor_out = self.predictor(states, actions)
-        prior_out = self.prior(states, actions)
+        target_out = self.target(states, actions)
 
-        return predictor_out, prior_out
+        return predictor_out, target_out
     
     def loss(self,
              states: torch.Tensor,
@@ -178,18 +183,29 @@ class DRND(nn.Module):
         '''
             outputs unreduced vector with shape as [batch_size, embedding_dim]
         '''
-        predictor_out, prior_out = self(states, actions)
+        predictor_out, target_out = self(states, actions)
 
-        loss = self.loss_fn(predictor_out, prior_out)
+        # sample the output of one of the target ensemble
+        target_sample = random.choice(target_out)  # [batch_size, embedding_dim]
+
+        loss = self.loss_fn(predictor_out, target_sample)
         return loss
     
-    def rnd_bonus(self,
+    def drnd_bonus(self,
                   state: torch.Tensor,
                   action: torch.Tensor) -> torch.Tensor:
-        bonus = self.loss(state, action).sum(dim=1) / self.rms.std
-        return bonus
+        predictor_out, target_out = self(state, action)
+
+        target_mean: torch.Tensor = target_out.mean(dim=0)  # [batch_size, embedding_dim]
+        B2: torch.Tensor = target_out.square().mean(dim=0)
+        target_mean_squared = target_mean.square()
+
+        b1 = self.loss_fn(predictor_out, target_mean).sum(dim=-1)
+        b2 = ((predictor_out.square() - target_mean_squared) / (B2 - target_mean_squared)).sqrt().sum(dim=-1)
+
+        return self.alpha * b1 + (1 - self.alpha) * b2
     
-    def update_rnd(self,
+    def update_drnd(self,
                    states: torch.Tensor,
                    actions: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         raw_loss = self.loss(states, actions).sum(dim=1)
@@ -200,20 +216,29 @@ class DRND(nn.Module):
         # made for logging
         random_actions = torch.rand_like(actions)
         random_actions = 2 * self.max_action * random_actions - self.max_action
-        rnd_random = self.rnd_bonus(states, random_actions).mean()
+        rnd_random = self.drnd_bonus(states, random_actions).mean()
 
         update_info = {
-            "rnd/loss": loss.item(),
-            "rnd/running_std": self.rms.std.item(),
-            "rnd/data": loss / self.rms.std.item(),
-            "rnd/random": rnd_random.item()
+            "drnd/loss": loss.item(),
+            "drnd/running_std": self.rms.std.item(),
+            "drnd/data": loss / self.rms.std.item(),
+            "drnd/random": rnd_random.item()
             }
         
         return loss, update_info
 
 
 if __name__ == "__main__":
-    m = EnsembledFiLM(17, 32, 5)
-    states = torch.rand(4, 17)
-    h = torch.rand(4, 32)
-    print(m(states, h).shape)
+    # m = EnsembledFiLM(17, 32, 5)
+    # states = torch.rand(4, 17)
+    # h = torch.rand(4, 32)
+    # print(m(states, h).shape)
+    m = EnsembledTargetNetwork(17, 6, 32, 3)
+    p = PredictorNetwork(17, 6, 32)
+    state = torch.rand(4, 17)
+    action = torch.rand(4, 6)
+
+    target_out = m(state, action)
+    target_sample = random.choice(target_out)
+    print(target_sample.shape)
+    # print(p(state, action).shape)

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import os
-import gym
+import gymnasium as gym
 from typing import Optional, Tuple, Union
 import json
 from imageio import mimsave
@@ -20,7 +20,7 @@ def make_dir(dir_path):
 
 
 def seed_everything(seed: int,
-                    env: Optional[gym.Env] = None,
+                    env=None,
                     use_deterministic_algos: bool = False):
     if env is not None:
         env.seed(seed)

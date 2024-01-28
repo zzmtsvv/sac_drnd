@@ -16,7 +16,7 @@ class ReplayBuffer:
         self.pointer = 0
         self.size = 0
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = "cpu"
         self.device = device
 
         self.states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
